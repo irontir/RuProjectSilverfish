@@ -29,9 +29,15 @@
 | Eather | эфир | не «эфирная сеть» |
 | Eatherite | эфирит |  |
 | Broker | Брокер |  |
-| Black Lake | Чёрное озеро |  |
-| Port Rale | Порт Рейл |  |
+| Black Lake | Чёрное озеро | в названии локации всегда «ё» |
+| Port Rale | Порт Рейл | не «Порт-Рэйл» |
 | West Carcosa | Западная Каркоса |  |
+| Flood Plains | Затопленные равнины | не «Пойма»; падежи: равнин, равнинах; варианты: FloodPlains |
+| East Carcosa | Восточная Каркоса | не «Каркоза» |
+| West Carcosa | Западная Каркоса |  |
+| Crossroads | Перекрёсток | везде с буквой ё; варианты: Cross Roads |
+| Metropol | Метропол | не «Метрополь»; в тексте: Метрополе, Метрополя |
+| Greywater Marsh | Сероводное болото |  |
 | Exclusion Zone | зона исключения |  |
 | Northern Exclusion Zone | Северная зона исключения |  |
 | Insurrectionist | мятежник |  |
