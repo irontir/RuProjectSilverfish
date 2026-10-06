@@ -1,0 +1,18 @@
+# Перевод
+
+| Файл | Назначение |
+|------|------------|
+| **`translation_map.json`** | Словарь EN → RU — **основной файл для перевода** |
+| **`glossary.json`** | Термины и правила — редактируешь вручную |
+| **`glossary_for_llm.md`** | Промпт для нейросети — `npm run glossary` |
+
+### translation_map.json
+
+- **Ключ** — английский `SourceString` из игры (**не менять**)
+- **Значение** — русский текст; `""` = ещё не переведено
+
+```powershell
+npm run scan
+# правка translation_map.json
+npm run build     # → build/Game.locres.txt
+```

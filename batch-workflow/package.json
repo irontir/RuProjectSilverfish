@@ -1,0 +1,10 @@
+{
+  "name": "silverfish-batch-workflow",
+  "private": true,
+  "description": "Опционально: батчи для перевода с LLM",
+  "scripts": {
+    "split": "node scripts/export-all-remaining.js",
+    "merge": "node scripts/import-all-done.js",
+    "status": "node scripts/translate-status.js"
+  }
+}

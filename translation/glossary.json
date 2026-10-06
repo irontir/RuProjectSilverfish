@@ -1,0 +1,58 @@
+{
+  "meta": {
+    "game": "Project Silverfish",
+    "localeTarget": "ru",
+    "notes": "Редактируй этот файл; npm run glossary → translation/glossary_for_llm.md"
+  },
+  "tone": [
+    "Северная зона исключения: наёмники, аномалии, эфир, фракции, чёрный рынок.",
+    "UI — коротко, как в шутере/RPG; терминалы — сухой или пугающий тон.",
+    "Диалоги разговорные; не смягчать мат и жёсткость без нужды.",
+    "Согласованность с ProjectSilverfishRus (costilman): эфир, ССТА, Брокер."
+  ],
+  "rules": [
+    "Ключ translation_map — английский SourceString; не менять.",
+    "Сохранять \\r\\n как в оригинале.",
+    "Не переводить плейсхолдеры :WepToggle:, :HelmLight:, :Reload: и аналоги.",
+    "Коды KR-332, 8344, метки LT-06, MC0078, имена культа Mak'iale — латиница как в оригинале где уместно.",
+    "Чистые цифры и короткие номера (784, 101) — обычно без перевода.",
+    "[DATA ERASED] → [ДАННЫЕ УДАЛЕНЫ]; [REDACTED FOR YOUR SAFETY] → [ЗАКРЫТО В ВАШИХ ИНТЕРЕСАХ]."
+  ],
+  "do_not_translate": [
+    ":WepToggle:",
+    ":HelmLight:",
+    ":Reload:",
+    "Standard Eather Co.",
+    "Savlo Industries",
+    "LT-06",
+    "MC0078",
+    "Mak'iale"
+  ],
+  "terms": [
+    { "en": "NFTA", "ru": "ССТА", "long": "Northern Free Trade Alliance → Северный свободный торговый альянс", "category": "faction" },
+    { "en": "Northern Free Trade Alliance", "ru": "ССТА", "category": "faction" },
+    { "en": "EDP", "ru": "ВОП", "long": "Eastern Defence Pact", "category": "faction" },
+    { "en": "Eather", "ru": "эфир", "note": "не «эфирная сеть»", "category": "lore" },
+    { "en": "Eatherite", "ru": "эфирит", "category": "lore" },
+    { "en": "Broker", "ru": "Брокер", "category": "character" },
+    { "en": "Black Lake", "ru": "Чёрное озеро", "category": "location" },
+    { "en": "Port Rale", "ru": "Порт Рейл", "category": "location" },
+    { "en": "West Carcosa", "ru": "Западная Каркоса", "category": "location" },
+    { "en": "Exclusion Zone", "ru": "зона исключения", "category": "lore" },
+    { "en": "Northern Exclusion Zone", "ru": "Северная зона исключения", "category": "lore" },
+    { "en": "Insurrectionist", "ru": "мятежник", "category": "faction" },
+    { "en": "Insurrectionists", "ru": "мятежники", "category": "faction" },
+    { "en": "merc", "ru": "наёмник", "category": "gameplay" },
+    { "en": "mercs", "ru": "наёмники", "category": "gameplay" },
+    { "en": "Gear", "ru": "снаряжение", "category": "ui" },
+    { "en": "Craft", "ru": "СОЗДАТЬ", "note": "кнопка UI", "category": "ui" },
+    { "en": "Data tape", "ru": "картридж данных", "aliases": ["data tape"], "category": "item" },
+    { "en": "Artifact", "ru": "артефакт", "category": "item" },
+    { "en": "Freelancer", "ru": "вольный сталкер", "aliases": ["Freelancers"], "category": "faction" },
+    { "en": "Yellow Stag", "ru": "Жёлтый олень", "note": "нашивка", "category": "faction" },
+    { "en": "cultist", "ru": "культист", "category": "faction" },
+    { "en": "anomaly", "ru": "аномалия", "aliases": ["anomalies"], "category": "lore" },
+    { "en": "squad", "ru": "отряд", "aliases": ["Squads"], "category": "gameplay" },
+    { "en": "quest", "ru": "задание", "aliases": ["Quest"], "category": "ui" }
+  ]
+}

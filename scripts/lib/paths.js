@@ -1,0 +1,68 @@
+const path = require('node:path')
+
+/** Корень репозитория (не папка scripts/) */
+const PROJECT_ROOT = path.resolve(__dirname, '../..')
+
+/** Относительные пути от корня — для meta и документации */
+const REL = {
+  usmap: 'usmap',
+  fmodelExport: 'fmodel_export',
+  fmodelExports: 'fmodel_export/Exports',
+  extracted: 'work/extracted',
+  localization: 'work/localization',
+  entries: 'work/localization/entries',
+  translationDir: 'translation',
+  translationMap: 'translation/translation_map.json',
+  build: 'build',
+  gameLocresTxt: 'build/Game.locres.txt',
+  gameLocresBin: 'build/Game.locres',
+  glossaryJson: 'translation/glossary.json',
+  glossaryLlm: 'translation/glossary_for_llm.md',
+  foldersConfig: 'config/localization_export_folders.txt',
+  packagesConfig: 'config/localization_packages.txt',
+  modLocres: 'SilverFish/Content/Localization/Game/en/Game.locres',
+  modPackZip: 'build/ProjectSilverfish-loc.zip',
+  modPaksDir: 'SilverFish/Content/Paks',
+  fontsDir: 'fonts',
+  batchWorkflow: 'batch-workflow',
+}
+
+function fromRoot (...segments) {
+  return path.join(PROJECT_ROOT, ...segments)
+}
+
+function resolveFromRoot (filePath) {
+  return path.isAbsolute(filePath) ? filePath : fromRoot(filePath)
+}
+
+function relFromRoot (absPath) {
+  return path.relative(PROJECT_ROOT, absPath).replace(/\\/g, '/')
+}
+
+module.exports = {
+  PROJECT_ROOT,
+  REL,
+  fromRoot,
+  resolveFromRoot,
+  relFromRoot,
+  usmapDir: fromRoot(REL.usmap),
+  fmodelExportRoot: fromRoot(REL.fmodelExport),
+  exportRoot: fromRoot(REL.fmodelExports),
+  extracted: fromRoot(REL.extracted),
+  localizationRoot: fromRoot(REL.localization),
+  translationDir: fromRoot(REL.translationDir),
+  locresWork: fromRoot(REL.entries),
+  EXTRACT_DIR: REL.extracted,
+  buildDir: fromRoot(REL.build),
+  foldersConfig: fromRoot(REL.foldersConfig),
+  packagesConfig: fromRoot(REL.packagesConfig),
+  defaultTranslationMap: fromRoot(REL.translationMap),
+  gameLocresTxt: fromRoot(REL.gameLocresTxt),
+  gameLocresBin: fromRoot(REL.gameLocresBin),
+  glossaryJson: fromRoot(REL.glossaryJson),
+  glossaryLlm: fromRoot(REL.glossaryLlm),
+  modLocres: fromRoot(REL.modLocres),
+  modPackZip: fromRoot(REL.modPackZip),
+  modPaksDir: fromRoot(REL.modPaksDir),
+  fontsDir: fromRoot(REL.fontsDir),
+}

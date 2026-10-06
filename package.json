@@ -1,0 +1,11 @@
+{
+  "scripts": {
+    "scan": "node scripts/scan-pipeline.js",
+    "build": "node scripts/build-pipeline.js",
+    "glossary": "node scripts/build/buildGlossary.js",
+    "pack": "node scripts/build/pack.js"
+  },
+  "dependencies": {
+    "cli-progress": "^3.12.0"
+  }
+}

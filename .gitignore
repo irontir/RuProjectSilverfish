@@ -1,0 +1,30 @@
+node_modules/
+
+# FModel (тяжёлый экспорт)
+fmodel_export/**
+!fmodel_export/README.md
+
+# Служебные данные scan/build
+work/
+
+# Сборка locres (txt + бинарник + pak) — только локально
+build/**
+!build/README.md
+build/pack-staging/
+
+# Старые пути (локальный мусор)
+/Output/
+
+# Батчи — локальная кухня (batch-workflow)
+batch-workflow/batches/**
+!batch-workflow/batches/README.md
+
+# Логи FModel
+**/*.log
+
+# UE4TextExtractor (локально)
+UE4TextExtractor.exe
+**/UE4TextExtractor.exe
+
+# Доп. paks (если положишь в SilverFish, не в fonts/)
+SilverFish/Content/Paks/*
