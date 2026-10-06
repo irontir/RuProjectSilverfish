@@ -1,5 +1,8 @@
 node_modules/
 
+# Cursor IDE (локально)
+.cursor/
+
 # FModel (тяжёлый экспорт)
 fmodel_export/**
 !fmodel_export/README.md

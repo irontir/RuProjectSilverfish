@@ -1,4 +1,6 @@
 {
+  "name": "ru-project-silverfish",
+  "private": true,
   "scripts": {
     "scan": "node scripts/scan-pipeline.js",
     "build": "node scripts/build-pipeline.js",

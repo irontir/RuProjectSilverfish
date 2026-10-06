@@ -1,4 +1,6 @@
-# Project Silverfish — русификация (locres)
+# RuProjectSilverfish — русификация Project Silverfish (locres)
+
+Локализация и пайплайн **на основе** [ProjectSilverfishRus](https://github.com/costilman/ProjectSilverfishRus) (costilman): формат locres, font-pak, эталон перевода.
 
 FModel JSON → **[`translation/translation_map.json`](translation/translation_map.json)** → **`build/Game.locres.txt`**.  
 Всё про перевод и глоссарий: **[translation/README.md](translation/README.md)**.
@@ -24,6 +26,8 @@ FModel JSON → **[`translation/translation_map.json`](translation/translation_m
 ## Подготовка
 
 ```powershell
+git clone <url-репозитория> RuProjectSilverfish
+cd RuProjectSilverfish
 npm install
 ```
 

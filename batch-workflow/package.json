@@ -1,5 +1,5 @@
 {
-  "name": "silverfish-batch-workflow",
+  "name": "ru-project-silverfish-batch-workflow",
   "private": true,
   "description": "Опционально: батчи для перевода с LLM",
   "scripts": {
