@@ -60,10 +60,12 @@ const main = async function () {
   }
 
   await fs.promises.writeFile(outPath, JSON.stringify(map, null, 2), 'utf8')
+  const removed = Object.keys(existing).filter(src => !sourceStrings.has(src)).length
 
   console.log(`Уникальных SourceString: ${sorted.length}`)
-  console.log(`Сохранено переводов из старого файла: ${kept}`)
+  console.log(`Сохранено существующих ключей: ${kept}`)
   console.log(`Новых ключей (пустой перевод ""): ${added}`)
+  console.log(`Удалено устаревших ключей: ${removed}`)
   console.log(`Записано: ${path.relative(paths.PROJECT_ROOT, outPath)}`)
   console.log('Дальше: переведи map → npm run build')
 }

@@ -3,7 +3,6 @@ const { createReadStream } = require('node:fs')
 const path = require('path')
 const cliProgress = require('cli-progress')
 const paths = require('../lib/paths')
-const { readConfigLines } = require('../lib/json-files')
 
 function to_uint32(n){
     return n >>> 0;
@@ -89,21 +88,9 @@ function StrCrc32_ASCII(string, newline)
     return to_uint32(CRC ^ to_uint32(0xFFFFFFFF));
 }
 
-const EXTRACT_DIR = paths.REL.extracted
-const EXPORT_ROOT = paths.exportRoot
+const INPUT_ROOT = path.join(paths.exportRoot, 'SilverFish/Content/Classes')
 const { syncEntriesFromExtracted } = require('../lib/sync-entries')
-const FOLDERS_CONFIG = paths.foldersConfig
-const PACKAGES_CONFIG = paths.packagesConfig
-
-/** SilverFish/Content/Classes/GUI → fmodel_export/Exports/SilverFish/Content/Classes/GUI */
-function gameContentPathToExportPath (gamePath) {
-  const normalized = gamePath.replace(/\\/g, '/').replace(/\.uasset$/i, '')
-  return path.join(EXPORT_ROOT, ...normalized.split('/'))
-}
-
-function gameUassetToExportJson (gamePath) {
-  return `${gameContentPathToExportPath(gamePath)}.json`
-}
+const CACHE_VERSION = 1
 
 /** В экспорте FModel FText всегда содержит SourceString — сначала ищем это в тексте, без JSON.parse */
 const FTEXT_TEXT_MARKER = '"SourceString"'
@@ -174,60 +161,35 @@ function extractFTextFromExportText (text) {
   return results
 }
 
-function toLocEntries (fTexts, endOfLine) {
-  return fTexts.map(obj => ({
+function isTranslatableSource (sourceString) {
+  if (typeof sourceString !== 'string' || !sourceString.trim()) return false
+  // Числа, пунктуация и одни плейсхолдеры перевода не требуют.
+  if (!/\p{L}/u.test(sourceString)) return false
+  // Ссылки Unreal и абсолютные пути не являются пользовательским текстом.
+  if (/^(?:[A-Za-z]+')?\/(?:Game|Script|Engine)\//i.test(sourceString)) return false
+  if (/^[A-Za-z]:[\\/]/.test(sourceString)) return false
+  return true
+}
+
+function toLocEntries (fTexts, endOfLine, sourceFile) {
+  return fTexts.filter(obj => isTranslatableSource(obj.SourceString)).map(obj => ({
     Namespace: obj.Namespace ?? '',
     Key: obj.Key,
     Hash: StrCrc32(obj.SourceString, endOfLine),
     SourceString: obj.SourceString,
     LocalizedString: '',
+    SourceFiles: [sourceFile],
   }))
 }
 
-async function getFiles(dir, excludeAbsDirs = [], skipDirNames = []) {
-  const isExcluded = (absPath) =>
-    excludeAbsDirs.some(
-      (ex) =>
-        absPath.toLowerCase() === ex.toLowerCase() ||
-        absPath.toLowerCase().startsWith(ex.toLowerCase() + path.sep)
-    )
-
-  const skipDir = (name) =>
-    skipDirNames.some(n => n.toLowerCase() === name.toLowerCase())
-
+async function getJsonFiles (dir) {
   const dirents = await fs.promises.readdir(dir, { withFileTypes: true });
   const files = await Promise.all(dirents.map((dirent) => {
     const res = path.resolve(dir, dirent.name);
-    if (dirent.isDirectory()) {
-      if (isExcluded(res) || skipDir(dirent.name)) return []
-      return getFiles(res, excludeAbsDirs, skipDirNames)
-    }
-    return res;
+    return dirent.isDirectory() ? getJsonFiles(res) : res
   }));
-  return Array.prototype.concat(...files);
+  return files.flat().filter(file => file.toLowerCase().endsWith('.json'))
 }
-
-const recursiveSearch = function (json, predicate) {
-  const uObjects = [];
-  const objects = [];
-  if (typeof predicate !== "function") {throw new TypeError("predicate is not a function")}
-  (function find (obj) {
-    let key;
-    if (predicate(obj) === true) {objects.push(obj)}
-    for (key of Object.keys(obj)) {
-      let o = obj[key];
-      if (o && typeof o === "object") {
-        if (! uObjects.find(obj => obj === o)) {
-          uObjects.push(o);
-          find(o);
-        }
-      }
-    }
-  } (json));
-  return objects;
-}
-
-const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 const formatCurrentFile = (filePath, rootDir) => {
   const rel = path.relative(rootDir, filePath).replace(/\\/g, '/')
@@ -235,55 +197,88 @@ const formatCurrentFile = (filePath, rootDir) => {
   return rel.length > max ? '…' + rel.slice(-(max - 1)) : rel
 }
 
-function scanExcludeDirs () {
-  return [paths.extracted, paths.locresWork, paths.fmodelExportRoot]
+async function readJsonIfExists (filePath, fallback) {
+  if (!fs.existsSync(filePath)) return fallback
+  try {
+    return JSON.parse(await fs.promises.readFile(filePath, 'utf8'))
+  } catch (err) {
+    console.warn(`Не удалось прочитать кэш ${paths.relFromRoot(filePath)}: ${err.message}. Пересканируем всё.`)
+    return fallback
+  }
 }
 
-async function resolveJsonFilesToScan ({ mode, includeMaps }) {
-  const exclude = scanExcludeDirs()
-  const missing = []
-
-  if (mode === 'packages') {
-    const jsonPaths = readConfigLines(PACKAGES_CONFIG).map(gameUassetToExportJson)
-    for (const p of jsonPaths) {
-      if (!fs.existsSync(p)) missing.push(p)
-    }
-    if (missing.length) {
-      console.warn(`Нет JSON для ${missing.length} pak-путей (не выгружал FModel?) — пропускаем.`)
-    }
-    return jsonPaths.filter(p => fs.existsSync(p))
-  }
-
-  if (mode === 'full') {
-    const inputRoot = path.join(EXPORT_ROOT, 'SilverFish/Content/Classes')
-    const skipDirNames = includeMaps ? [] : ['Maps']
-    return (await getFiles(inputRoot, exclude, skipDirNames))
-      .filter(f => f.endsWith('.json'))
-  }
-
-  let folders = readConfigLines(FOLDERS_CONFIG)
-  if (!includeMaps) {
-    folders = folders.filter(f => !/(^|\/)Maps$/i.test(f.replace(/\\/g, '/')))
-  }
-
-  const fileSet = new Set()
-  for (const gamePath of folders) {
-    const dir = gameContentPathToExportPath(gamePath)
-    if (!fs.existsSync(dir)) {
-      console.warn(`Нет папки экспорта: ${path.relative(paths.PROJECT_ROOT, dir)}`)
-      continue
-    }
-    const list = await getFiles(dir, exclude, [])
-    list.filter(f => f.endsWith('.json')).forEach(f => fileSet.add(f))
-  }
-  return [...fileSet]
+function entryId (row) {
+  return JSON.stringify([row.Namespace ?? '', row.Key, row.Hash])
 }
 
-const processJsonFiles = async function (files, outputFolder, endOfLine, { labelRoot } = {}) {
-  const inputRoot = labelRoot || EXPORT_ROOT
-  const outputRoot = paths.resolveFromRoot(outputFolder)
-  await fs.promises.mkdir(outputRoot, { recursive: true })
-  const stats = { skipped: 0, processed: 0, written: 0 }
+function stableEntryId (row) {
+  return JSON.stringify([row.Namespace ?? '', row.Key])
+}
+
+function mergeEntries (fileEntries) {
+  const unique = new Map()
+  for (const rows of fileEntries) {
+    for (const row of rows) {
+      const id = entryId(row)
+      const existing = unique.get(id)
+      if (existing) {
+        for (const sourceFile of row.SourceFiles || []) {
+          if (!existing.SourceFiles.includes(sourceFile)) existing.SourceFiles.push(sourceFile)
+        }
+      } else {
+        unique.set(id, { ...row, SourceFiles: [...(row.SourceFiles || [])] })
+      }
+    }
+  }
+  return [...unique.values()].sort((a, b) =>
+    a.SourceString.localeCompare(b.SourceString, 'en') || a.Key.localeCompare(b.Key, 'en')
+  )
+}
+
+function buildSnapshot (entries) {
+  const byStableId = {}
+  for (const row of entries) {
+    const id = stableEntryId(row)
+    if (!byStableId[id]) byStableId[id] = []
+    if (!byStableId[id].includes(row.SourceString)) byStableId[id].push(row.SourceString)
+  }
+  for (const values of Object.values(byStableId)) values.sort((a, b) => a.localeCompare(b, 'en'))
+  return { version: 1, entries: byStableId }
+}
+
+function compareSnapshots (previous, current) {
+  const oldEntries = previous?.entries || {}
+  const newEntries = current.entries
+  let added = 0
+  let changed = 0
+  let unchanged = 0
+  let removed = 0
+
+  for (const [id, sources] of Object.entries(newEntries)) {
+    if (!Object.prototype.hasOwnProperty.call(oldEntries, id)) added++
+    else if (JSON.stringify(oldEntries[id]) === JSON.stringify(sources)) unchanged++
+    else changed++
+  }
+  for (const id of Object.keys(oldEntries)) {
+    if (!Object.prototype.hasOwnProperty.call(newEntries, id)) removed++
+  }
+  return { added, changed, unchanged, removed }
+}
+
+async function replaceExtractedSnapshot (entries) {
+  const outputFile = path.join(paths.extracted, 'entries.json')
+  await fs.promises.rm(paths.extracted, { recursive: true, force: true })
+  await fs.promises.mkdir(paths.extracted, { recursive: true })
+  await fs.promises.writeFile(outputFile, JSON.stringify(entries, null, 2), 'utf8')
+}
+
+const processJsonFiles = async function (files, { rescan = false } = {}) {
+  const oldCache = rescan
+    ? { version: CACHE_VERSION, files: {} }
+    : await readJsonIfExists(paths.scanCache, { version: CACHE_VERSION, files: {} })
+  const cacheFiles = oldCache.version === CACHE_VERSION && oldCache.files ? oldCache.files : {}
+  const newCache = { version: CACHE_VERSION, root: paths.relFromRoot(INPUT_ROOT), files: {} }
+  const stats = { cached: 0, scanned: 0, withoutFText: 0, withFText: 0, filtered: 0 }
 
   const progressBar = new cliProgress.SingleBar({
     format: ' [{bar}] {percentage}% | {value}/{total} | {file}',
@@ -291,114 +286,89 @@ const processJsonFiles = async function (files, outputFolder, endOfLine, { label
     clearOnComplete: true,
   }, cliProgress.Presets.shades_classic);
 
- const fileList = files
-   .filter(f => f.endsWith('.json'))
-   .filter(f => !f.toLowerCase().startsWith(outputRoot.toLowerCase() + path.sep))
+  console.log(`Найдено JSON: ${files.length}. Рекурсивный обход всего Classes, включая Maps.`)
+  console.log(rescan ? 'Принудительное полное сканирование…' : 'Сканирование новых и изменённых файлов…')
+  progressBar.start(files.length, 0, { file: '—' });
 
- console.log(`Найдено JSON: ${fileList.length}. Сначала текстовый поиск ${FTEXT_TEXT_MARKER}, затем извлечение FText.`)
- console.log('Сканирование…')
- progressBar.start(fileList.length, 0, { file: '—' });
-  
-  const globalUniqMap = {}
-
-  for (let idx = 0; idx < fileList.length; idx++) {
-    const file = fileList[idx]
-    const fileLabel = formatCurrentFile(file, inputRoot)
+  const fileEntries = []
+  for (let idx = 0; idx < files.length; idx++) {
+    const file = files[idx]
+    const fileLabel = formatCurrentFile(file, INPUT_ROOT)
     progressBar.update(idx, { file: fileLabel })
     try {
-      const fileName = path.basename(file, '.json')
+      const stat = await fs.promises.stat(file)
+      const relativePath = path.relative(INPUT_ROOT, file).replace(/\\/g, '/')
+      const cached = cacheFiles[relativePath]
+      let rows
+      let filtered = 0
 
-      if (!(await textFileContainsMarker(file))) {
-        stats.skipped++
-        progressBar.update(idx + 1, { file: fileLabel })
-        continue
-      }
-
-      const fileData = await fs.promises.readFile(file, 'utf8')
-      const parsedData = toLocEntries(extractFTextFromExportText(fileData), endOfLine)
-      stats.processed++
-
-      const localUniqMap = {}
-
-      parsedData.forEach(obj => {
-        if (!globalUniqMap[`${obj.Namespace}/${obj.Key}/${obj.Hash}`]) {
-          localUniqMap[`${obj.Namespace}/${obj.Key}/${obj.Hash}`] = obj
-          globalUniqMap[`${obj.Namespace}/${obj.Key}/${obj.Hash}`] = obj
+      if (!rescan && cached && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs && Array.isArray(cached.rows)) {
+        rows = cached.rows
+        filtered = cached.filtered || 0
+        stats.cached++
+      } else {
+        stats.scanned++
+        if (!(await textFileContainsMarker(file))) {
+          rows = []
+        } else {
+          const fileData = await fs.promises.readFile(file, 'utf8')
+          const found = extractFTextFromExportText(fileData)
+          rows = toLocEntries(found, 'lf', relativePath)
+          filtered = found.length - rows.length
         }
-      })
-
-      const uniqMapValues = Object.values(localUniqMap)
-
-      if (uniqMapValues.length) {
-        await fs.promises.writeFile(
-          path.join(outputRoot, `${fileName}.json`),
-          JSON.stringify(uniqMapValues, null, 2),
-          'utf8'
-        )
-        stats.written++
       }
+
+      stats.filtered += filtered
+      if (rows.length) stats.withFText++
+      else stats.withoutFText++
+      newCache.files[relativePath] = {
+        size: stat.size,
+        mtimeMs: stat.mtimeMs,
+        rows,
+        filtered,
+      }
+      fileEntries.push(rows)
     } catch (err) {
       progressBar.stop()
       console.error(`Ошибка в файле: ${fileLabel}`)
-      console.error(err)
-      progressBar.start(fileList.length, idx, { file: fileLabel })
+      throw err
     }
     progressBar.update(idx + 1, { file: fileLabel });
   }
 
   progressBar.stop();
-  console.log(`Файлов: ${fileList.length} | пропуск (нет FText в тексте): ${stats.skipped} | разобрано: ${stats.processed} | записано: ${stats.written}`)
+  const entries = mergeEntries(fileEntries)
+  const previousSnapshot = await readJsonIfExists(paths.scanSnapshot, { version: 1, entries: {} })
+  const snapshot = buildSnapshot(entries)
+  const changes = compareSnapshots(previousSnapshot, snapshot)
+
+  await replaceExtractedSnapshot(entries)
+  await fs.promises.mkdir(path.dirname(paths.scanCache), { recursive: true })
+  await fs.promises.writeFile(paths.scanCache, JSON.stringify(newCache), 'utf8')
+  await fs.promises.writeFile(paths.scanSnapshot, JSON.stringify(snapshot, null, 2), 'utf8')
+
+  console.log(`Файлов: ${files.length} | из кэша: ${stats.cached} | прочитано: ${stats.scanned}`)
+  console.log(`С FText: ${stats.withFText} | без переводимого текста: ${stats.withoutFText} | отфильтровано: ${stats.filtered}`)
+  console.log(`Записей: ${entries.length} | новые: ${changes.added} | изменённые: ${changes.changed} | без изменений: ${changes.unchanged} | удалённые: ${changes.removed}`)
+  return { entries: entries.length, changes }
 }
-
-const moveInAllFilesInDir = async function(from, to) {
-  const progressBar = new cliProgress.SingleBar({}, cliProgress.Presets.shades_classic);
-  
-  const files = await getFiles(paths.fromRoot(from))
-  
-  progressBar.start(files.length, 0);
-  
-  for (let idx = 0; idx < files.length; idx++) {
-    try {
-      const file = files[idx]
-      const fileName = `${file.split('\\').reverse()[0].split('.')[0]}`
-      const fileExtension = `${file.split('\\').reverse()[0].split('.')[1]}`
-      await fs.promises.rename(file, paths.fromRoot(to, `${fileName}.${fileExtension}`), function (err) {
-        if (err) throw err
-      })
-    } catch (err) {
-      console.error('Error writing file:', err);
-    }
-    progressBar.update(idx + 1);
-  }
-
-  progressBar.stop();
-}
-
 
 const main = async function () {
- const argv = process.argv.slice(2)
- const includeMaps = argv.includes('--include-maps')
- const mode = argv.includes('--full')
-   ? 'full'
-   : argv.includes('--packages')
-     ? 'packages'
-     : 'folders'
+  const rescan = process.argv.slice(2).includes('--rescan')
+  if (!fs.existsSync(INPUT_ROOT)) {
+    throw new Error(`Нет папки экспорта: ${paths.relFromRoot(INPUT_ROOT)}`)
+  }
 
- if (mode === 'folders') {
-   console.log('Режим: config/localization_export_folders.txt (без Maps, если не --include-maps)')
- } else if (mode === 'packages') {
-   console.log('Режим: config/localization_packages.txt (~948 uasset → только нужные JSON)')
- } else {
-   console.log('Режим: весь Classes (--full)')
- }
-
- const files = await resolveJsonFilesToScan({ mode, includeMaps })
- await processJsonFiles(files, EXTRACT_DIR, 'lf')
- const { files: synced } = await syncEntriesFromExtracted()
- console.log(`Extract: ./${EXTRACT_DIR}/ | entries: ./${paths.REL.entries}/ (${synced} файлов)`)
- console.log(`Mod: ${paths.REL.modLocres}`)
+  const files = await getJsonFiles(INPUT_ROOT)
+  await processJsonFiles(files, { rescan })
+  const { files: synced, removed } = await syncEntriesFromExtracted()
+  console.log(`Extract: ./${paths.REL.extracted}/ | entries: ./${paths.REL.entries}/ (${synced} файлов, удалено старых: ${removed})`)
+  console.log(`Mod: ${paths.REL.modLocres}`)
 }
 
 if (require.main === module) {
-  main()
+  main().catch(err => {
+    console.error(err.message || err)
+    process.exit(1)
+  })
 }

@@ -19,7 +19,7 @@ FModel JSON → **[`translation/translation_map.json`](translation/translation_m
 
 **`npm run glossary`** — обновить `translation/glossary_for_llm.md`.
 
-Флаги scan: `npm run scan -- --include-maps`, `--packages`, `--full`.
+`npm run scan` рекурсивно обходит весь `Classes`, включая `Maps`. Неизменившиеся JSON берутся из кэша. Для принудительного полного пересканирования: `npm run scan:rescan`.
 
 ---
 
@@ -94,6 +94,8 @@ npm run scan
 # новые ключи в translation/translation_map.json
 npm run build
 ```
+
+Scan сохраняет готовые переводы для неизменившихся `SourceString`, добавляет новые строки пустыми и удаляет устаревшие. Кэш находится в `work/` и не участвует в Git.
 
 ---
 

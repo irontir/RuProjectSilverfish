@@ -18,36 +18,43 @@ async function syncEntriesFromExtracted () {
     throw new Error(`Нет ${paths.REL.extracted}/ — сначала npm run extract`)
   }
 
-  await fs.promises.mkdir(entriesDir, { recursive: true })
   const files = await getJsonFiles(extractedDir)
+  const localizedById = new Map()
+  let removed = 0
+
+  if (fs.existsSync(entriesDir)) {
+    const existingFiles = await getJsonFiles(entriesDir)
+    removed = existingFiles.length
+    for (const file of existingFiles) {
+      const existing = JSON.parse(await fs.promises.readFile(file, 'utf8'))
+      if (!Array.isArray(existing)) continue
+      for (const row of existing) {
+        if (row.LocalizedString) localizedById.set(entryId(row), row.LocalizedString)
+      }
+    }
+    await fs.promises.rm(entriesDir, { recursive: true, force: true })
+  }
+
+  await fs.promises.mkdir(entriesDir, { recursive: true })
   let written = 0
 
   for (const file of files) {
-    const base = path.basename(file)
-    const outPath = path.join(entriesDir, base)
+    const relativePath = path.relative(extractedDir, file)
+    const outPath = path.join(entriesDir, relativePath)
     const extractedRows = JSON.parse(await fs.promises.readFile(file, 'utf8'))
     if (!Array.isArray(extractedRows)) continue
-
-    const localizedById = new Map()
-    if (fs.existsSync(outPath)) {
-      const existing = JSON.parse(await fs.promises.readFile(outPath, 'utf8'))
-      if (Array.isArray(existing)) {
-        for (const row of existing) {
-          if (row.LocalizedString) localizedById.set(entryId(row), row.LocalizedString)
-        }
-      }
-    }
 
     for (const row of extractedRows) {
       const saved = localizedById.get(entryId(row))
       row.LocalizedString = saved ?? row.LocalizedString ?? ''
     }
 
+    await fs.promises.mkdir(path.dirname(outPath), { recursive: true })
     await fs.promises.writeFile(outPath, JSON.stringify(extractedRows, null, 2), 'utf8')
     written++
   }
 
-  return { files: written }
+  return { files: written, removed }
 }
 
 module.exports = { syncEntriesFromExtracted }

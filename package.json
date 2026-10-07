@@ -3,6 +3,7 @@
   "private": true,
   "scripts": {
     "scan": "node scripts/scan-pipeline.js",
+    "scan:rescan": "node scripts/scan-pipeline.js --rescan",
     "build": "node scripts/build-pipeline.js",
     "glossary": "node scripts/build/buildGlossary.js",
     "pack": "node scripts/build/pack.js"
