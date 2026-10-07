@@ -90,7 +90,9 @@ function StrCrc32_ASCII(string, newline)
 
 const INPUT_ROOT = path.join(paths.exportRoot, 'SilverFish/Content/Classes')
 const { syncEntriesFromExtracted } = require('../lib/sync-entries')
-const CACHE_VERSION = 1
+const { createIgnoredEntryMatcher } = require('../lib/ignored-entries')
+const CACHE_VERSION = 2
+const { ignored: ignoredEntries, isIgnored } = createIgnoredEntryMatcher()
 
 /** В экспорте FModel FText всегда содержит SourceString — сначала ищем это в тексте, без JSON.parse */
 const FTEXT_TEXT_MARKER = '"SourceString"'
@@ -161,6 +163,49 @@ function extractFTextFromExportText (text) {
   return results
 }
 
+/**
+ * Возвращает Namespace+Key для FText внутри TextRenderComponent.
+ * Эти компоненты используются для 3D-надписей на дверях и табличках, а их
+ * игровые шрифты не содержат кириллицу: перевод делает такую надпись пустой.
+ */
+function extractTextRenderEntryIds (text) {
+  const ids = new Set()
+  const componentStart = /\{\s*"Type"\s*:\s*"TextRenderComponent"/g
+  let match
+
+  while ((match = componentStart.exec(text)) !== null) {
+    const start = match.index
+    let depth = 0
+    let inString = false
+    let escaped = false
+    let end = text.length
+
+    for (let i = start; i < text.length; i++) {
+      const char = text[i]
+      if (inString) {
+        if (escaped) escaped = false
+        else if (char === '\\') escaped = true
+        else if (char === '"') inString = false
+        continue
+      }
+
+      if (char === '"') inString = true
+      else if (char === '{') depth++
+      else if (char === '}' && --depth === 0) {
+        end = i + 1
+        break
+      }
+    }
+
+    for (const row of extractFTextFromExportText(text.slice(start, end))) {
+      ids.add(stableEntryId(row))
+    }
+    componentStart.lastIndex = end
+  }
+
+  return ids
+}
+
 function isTranslatableSource (sourceString) {
   if (typeof sourceString !== 'string' || !sourceString.trim()) return false
   // Числа, пунктуация и одни плейсхолдеры перевода не требуют.
@@ -172,7 +217,7 @@ function isTranslatableSource (sourceString) {
 }
 
 function toLocEntries (fTexts, endOfLine, sourceFile) {
-  return fTexts.filter(obj => isTranslatableSource(obj.SourceString)).map(obj => ({
+  return fTexts.filter(obj => isTranslatableSource(obj.SourceString) && !isIgnored(obj)).map(obj => ({
     Namespace: obj.Namespace ?? '',
     Key: obj.Key,
     Hash: StrCrc32(obj.SourceString, endOfLine),
@@ -278,7 +323,7 @@ const processJsonFiles = async function (files, { rescan = false } = {}) {
     : await readJsonIfExists(paths.scanCache, { version: CACHE_VERSION, files: {} })
   const cacheFiles = oldCache.version === CACHE_VERSION && oldCache.files ? oldCache.files : {}
   const newCache = { version: CACHE_VERSION, root: paths.relFromRoot(INPUT_ROOT), files: {} }
-  const stats = { cached: 0, scanned: 0, withoutFText: 0, withFText: 0, filtered: 0 }
+  const stats = { cached: 0, scanned: 0, withoutFText: 0, withFText: 0, filtered: 0, textRenderIgnored: 0 }
 
   const progressBar = new cliProgress.SingleBar({
     format: ' [{bar}] {percentage}% | {value}/{total} | {file}',
@@ -287,6 +332,7 @@ const processJsonFiles = async function (files, { rescan = false } = {}) {
   }, cliProgress.Presets.shades_classic);
 
   console.log(`Найдено JSON: ${files.length}. Рекурсивный обход всего Classes, включая Maps.`)
+  console.log(`Игнорируемых Unreal-ключей: ${ignoredEntries.length} (${paths.REL.ignoredKeys})`)
   console.log(rescan ? 'Принудительное полное сканирование…' : 'Сканирование новых и изменённых файлов…')
   progressBar.start(files.length, 0, { file: '—' });
 
@@ -301,10 +347,12 @@ const processJsonFiles = async function (files, { rescan = false } = {}) {
       const cached = cacheFiles[relativePath]
       let rows
       let filtered = 0
+      let textRenderIgnored = 0
 
       if (!rescan && cached && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs && Array.isArray(cached.rows)) {
-        rows = cached.rows
-        filtered = cached.filtered || 0
+        rows = cached.rows.filter(row => !isIgnored(row))
+        filtered = (cached.filtered || 0) + (cached.rows.length - rows.length)
+        textRenderIgnored = cached.textRenderIgnored || 0
         stats.cached++
       } else {
         stats.scanned++
@@ -313,12 +361,17 @@ const processJsonFiles = async function (files, { rescan = false } = {}) {
         } else {
           const fileData = await fs.promises.readFile(file, 'utf8')
           const found = extractFTextFromExportText(fileData)
+          const textRenderIds = extractTextRenderEntryIds(fileData)
           rows = toLocEntries(found, 'lf', relativePath)
+          const beforeTextRenderFilter = rows.length
+          rows = rows.filter(row => !textRenderIds.has(stableEntryId(row)))
+          textRenderIgnored = beforeTextRenderFilter - rows.length
           filtered = found.length - rows.length
         }
       }
 
       stats.filtered += filtered
+      stats.textRenderIgnored += textRenderIgnored
       if (rows.length) stats.withFText++
       else stats.withoutFText++
       newCache.files[relativePath] = {
@@ -326,6 +379,7 @@ const processJsonFiles = async function (files, { rescan = false } = {}) {
         mtimeMs: stat.mtimeMs,
         rows,
         filtered,
+        textRenderIgnored,
       }
       fileEntries.push(rows)
     } catch (err) {
@@ -349,6 +403,7 @@ const processJsonFiles = async function (files, { rescan = false } = {}) {
 
   console.log(`Файлов: ${files.length} | из кэша: ${stats.cached} | прочитано: ${stats.scanned}`)
   console.log(`С FText: ${stats.withFText} | без переводимого текста: ${stats.withoutFText} | отфильтровано: ${stats.filtered}`)
+  console.log(`Из них 3D-текст дверей и табличек (TextRenderComponent): ${stats.textRenderIgnored}`)
   console.log(`Записей: ${entries.length} | новые: ${changes.added} | изменённые: ${changes.changed} | без изменений: ${changes.unchanged} | удалённые: ${changes.removed}`)
   return { entries: entries.length, changes }
 }

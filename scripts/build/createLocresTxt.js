@@ -1,17 +1,24 @@
 const fs = require('node:fs')
 const paths = require('../lib/paths')
 const { getJsonFiles } = require('../lib/json-files')
+const { createIgnoredEntryMatcher } = require('../lib/ignored-entries')
 
 const createLocresTxt = async function () {
   const files = await getJsonFiles(paths.locresWork)
   const chunks = ['=>{}\r\n\r\n']
   let entryCount = 0
+  let ignoredCount = 0
+  const { isIgnored } = createIgnoredEntryMatcher()
 
   for (const file of files) {
     try {
       const json = JSON.parse(await fs.promises.readFile(file, 'utf8'))
       if (!Array.isArray(json)) continue
       for (const obj of json) {
+        if (isIgnored(obj)) {
+          ignoredCount++
+          continue
+        }
         if (obj.LocalizedString !== '') {
           chunks.push(`=>[${obj.Key}][${obj.Hash}]\r\n`)
           chunks.push(`${obj.LocalizedString}\r\n\r\n`)
@@ -27,6 +34,7 @@ const createLocresTxt = async function () {
   await fs.promises.mkdir(paths.buildDir, { recursive: true })
   await fs.promises.writeFile(paths.gameLocresTxt, chunks.join(''), 'utf8')
   console.log(`Записано строк: ${entryCount}`)
+  console.log(`Пропущено по ignored_keys.json: ${ignoredCount}`)
   console.log(`Файл: ${paths.gameLocresTxt}`)
 }
 
