@@ -44,7 +44,7 @@
     { "en": "Flood Plains", "ru": "Затопленные равнины", "aliases": ["FloodPlains"], "note": "не «Пойма»; падежи: равнин, равнинах", "category": "location" },
     { "en": "East Carcosa", "ru": "Восточная Каркоса", "note": "не «Каркоза»", "category": "location" },
     { "en": "Crossroads", "ru": "Перекрёсток", "aliases": ["Cross Roads"], "note": "везде с буквой ё", "category": "location" },
-    { "en": "Metropol", "ru": "Метропол", "note": "не «Метрополь»; в тексте: Метрополе, Метрополя", "category": "location" },
+    { "en": "Metropol", "ru": "Метрополь", "note": "в тексте: Метрополе, Метрополя", "category": "location" },
     { "en": "Greywater Marsh", "ru": "Сероводное болото", "category": "location" },
     { "en": "Exclusion Zone", "ru": "зона исключения", "category": "lore" },
     { "en": "Northern Exclusion Zone", "ru": "Северная зона исключения", "category": "lore" },

@@ -2,6 +2,7 @@ node_modules/
 
 # Cursor IDE (локально)
 .cursor/
+.idea/
 
 # FModel (тяжёлый экспорт)
 fmodel_export/**

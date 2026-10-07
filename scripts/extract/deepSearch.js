@@ -90,32 +90,32 @@ function StrCrc32_ASCII(string, newline)
 
 const INPUT_ROOT = path.join(paths.exportRoot, 'SilverFish/Content/Classes')
 const { syncEntriesFromExtracted } = require('../lib/sync-entries')
-const { createIgnoredEntryMatcher } = require('../lib/ignored-entries')
-const CACHE_VERSION = 2
-const { ignored: ignoredEntries, isIgnored } = createIgnoredEntryMatcher()
+const CACHE_VERSION = 5
+const EXCLUDED_OBJECT_TYPES = new Set(['UserDefinedEnum', 'TextRenderComponent'])
 
-/** В экспорте FModel FText всегда содержит SourceString — сначала ищем это в тексте, без JSON.parse */
-const FTEXT_TEXT_MARKER = '"SourceString"'
+/** Настоящий FText в экспорте FModel содержит оба поля. */
+const FTEXT_TEXT_MARKERS = ['"SourceString"', '"LocalizedString"']
 const STREAM_SCAN_CHUNK = 256 * 1024
-const FTEXT_PAIR_RE = /"Key"\s*:\s*"((?:[^"\\]|\\.)*)"\s*,\s*"SourceString"\s*:\s*"((?:[^"\\]|\\.)*)"/g
+const FTEXT_PAIR_RE = /"Key"\s*:\s*"((?:[^"\\]|\\.)*)"\s*,\s*"SourceString"\s*:\s*"((?:[^"\\]|\\.)*)"\s*,\s*"LocalizedString"\s*:\s*"((?:[^"\\]|\\.)*)"/g
 
-async function textFileContainsMarker (filePath, needle = FTEXT_TEXT_MARKER) {
+async function textFileContainsMarkers (filePath, needles = FTEXT_TEXT_MARKERS) {
   const { size } = await fs.promises.stat(filePath)
   if (size === 0) return false
   if (size <= STREAM_SCAN_CHUNK) {
     const text = await fs.promises.readFile(filePath, 'utf8')
-    return text.includes(needle)
+    return needles.every(needle => text.includes(needle))
   }
   return new Promise((resolve, reject) => {
-    let found = false
+    const missing = new Set(needles)
     let tail = ''
-    const overlap = Math.max(needle.length - 1, 0)
+    const overlap = Math.max(...needles.map(needle => needle.length)) - 1
     const stream = createReadStream(filePath, { encoding: 'utf8', highWaterMark: STREAM_SCAN_CHUNK })
     stream.on('data', (chunk) => {
-      if (found) return
       const haystack = tail + chunk
-      if (haystack.includes(needle)) {
-        found = true
+      for (const needle of missing) {
+        if (haystack.includes(needle)) missing.delete(needle)
+      }
+      if (missing.size === 0) {
         stream.destroy()
         resolve(true)
         return
@@ -123,7 +123,7 @@ async function textFileContainsMarker (filePath, needle = FTEXT_TEXT_MARKER) {
       tail = overlap ? haystack.slice(-overlap) : ''
     })
     stream.on('close', () => {
-      if (!found) resolve(false)
+      if (missing.size !== 0) resolve(false)
     })
     stream.on('error', reject)
   })
@@ -164,16 +164,23 @@ function extractFTextFromExportText (text) {
 }
 
 /**
- * Возвращает Namespace+Key для FText внутри TextRenderComponent.
- * Эти компоненты используются для 3D-надписей на дверях и табличках, а их
- * игровые шрифты не содержат кириллицу: перевод делает такую надпись пустой.
+ * Возвращает Namespace+Key для FText внутри исключённых типов объектов.
+ * Фильтрация структурная и не зависит от имени файла, пути, GUID или текста.
  */
-function extractTextRenderEntryIds (text) {
-  const ids = new Set()
-  const componentStart = /\{\s*"Type"\s*:\s*"TextRenderComponent"/g
+function extractExcludedEntries (text) {
+  const typesById = new Map()
+  const objectStart = /\{\s*"Type"\s*:\s*"((?:[^"\\]|\\.)*)"/g
   let match
 
-  while ((match = componentStart.exec(text)) !== null) {
+  while ((match = objectStart.exec(text)) !== null) {
+    let objectType
+    try {
+      objectType = jsonUnquote(match[1])
+    } catch {
+      continue
+    }
+    if (!EXCLUDED_OBJECT_TYPES.has(objectType)) continue
+
     const start = match.index
     let depth = 0
     let inString = false
@@ -198,12 +205,12 @@ function extractTextRenderEntryIds (text) {
     }
 
     for (const row of extractFTextFromExportText(text.slice(start, end))) {
-      ids.add(stableEntryId(row))
+      typesById.set(stableEntryId(row), objectType)
     }
-    componentStart.lastIndex = end
+    objectStart.lastIndex = end
   }
 
-  return ids
+  return typesById
 }
 
 function isTranslatableSource (sourceString) {
@@ -217,14 +224,14 @@ function isTranslatableSource (sourceString) {
 }
 
 function toLocEntries (fTexts, endOfLine, sourceFile) {
-  return fTexts.filter(obj => isTranslatableSource(obj.SourceString) && !isIgnored(obj)).map(obj => ({
+  return fTexts.map(obj => ({
     Namespace: obj.Namespace ?? '',
     Key: obj.Key,
     Hash: StrCrc32(obj.SourceString, endOfLine),
     SourceString: obj.SourceString,
     LocalizedString: '',
     SourceFiles: [sourceFile],
-  }))
+  })).filter(obj => isTranslatableSource(obj.SourceString))
 }
 
 async function getJsonFiles (dir) {
@@ -323,7 +330,7 @@ const processJsonFiles = async function (files, { rescan = false } = {}) {
     : await readJsonIfExists(paths.scanCache, { version: CACHE_VERSION, files: {} })
   const cacheFiles = oldCache.version === CACHE_VERSION && oldCache.files ? oldCache.files : {}
   const newCache = { version: CACHE_VERSION, root: paths.relFromRoot(INPUT_ROOT), files: {} }
-  const stats = { cached: 0, scanned: 0, withoutFText: 0, withFText: 0, filtered: 0, textRenderIgnored: 0 }
+  const stats = { cached: 0, scanned: 0, withoutFText: 0, withFText: 0, filtered: 0, excludedTypes: {} }
 
   const progressBar = new cliProgress.SingleBar({
     format: ' [{bar}] {percentage}% | {value}/{total} | {file}',
@@ -332,7 +339,7 @@ const processJsonFiles = async function (files, { rescan = false } = {}) {
   }, cliProgress.Presets.shades_classic);
 
   console.log(`Найдено JSON: ${files.length}. Рекурсивный обход всего Classes, включая Maps.`)
-  console.log(`Игнорируемых Unreal-ключей: ${ignoredEntries.length} (${paths.REL.ignoredKeys})`)
+  console.log(`Исключённые типы объектов: ${[...EXCLUDED_OBJECT_TYPES].join(', ')}`)
   console.log(rescan ? 'Принудительное полное сканирование…' : 'Сканирование новых и изменённых файлов…')
   progressBar.start(files.length, 0, { file: '—' });
 
@@ -347,31 +354,36 @@ const processJsonFiles = async function (files, { rescan = false } = {}) {
       const cached = cacheFiles[relativePath]
       let rows
       let filtered = 0
-      let textRenderIgnored = 0
+      let excludedTypes = {}
 
       if (!rescan && cached && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs && Array.isArray(cached.rows)) {
-        rows = cached.rows.filter(row => !isIgnored(row))
-        filtered = (cached.filtered || 0) + (cached.rows.length - rows.length)
-        textRenderIgnored = cached.textRenderIgnored || 0
+        rows = cached.rows
+        filtered = cached.filtered || 0
+        excludedTypes = cached.excludedTypes || {}
         stats.cached++
       } else {
         stats.scanned++
-        if (!(await textFileContainsMarker(file))) {
+        if (!(await textFileContainsMarkers(file))) {
           rows = []
         } else {
           const fileData = await fs.promises.readFile(file, 'utf8')
           const found = extractFTextFromExportText(fileData)
-          const textRenderIds = extractTextRenderEntryIds(fileData)
+          const excludedEntries = extractExcludedEntries(fileData)
           rows = toLocEntries(found, 'lf', relativePath)
-          const beforeTextRenderFilter = rows.length
-          rows = rows.filter(row => !textRenderIds.has(stableEntryId(row)))
-          textRenderIgnored = beforeTextRenderFilter - rows.length
+          rows = rows.filter(row => {
+            const objectType = excludedEntries.get(stableEntryId(row))
+            if (!objectType) return true
+            excludedTypes[objectType] = (excludedTypes[objectType] || 0) + 1
+            return false
+          })
           filtered = found.length - rows.length
         }
       }
 
       stats.filtered += filtered
-      stats.textRenderIgnored += textRenderIgnored
+      for (const [objectType, count] of Object.entries(excludedTypes)) {
+        stats.excludedTypes[objectType] = (stats.excludedTypes[objectType] || 0) + count
+      }
       if (rows.length) stats.withFText++
       else stats.withoutFText++
       newCache.files[relativePath] = {
@@ -379,7 +391,7 @@ const processJsonFiles = async function (files, { rescan = false } = {}) {
         mtimeMs: stat.mtimeMs,
         rows,
         filtered,
-        textRenderIgnored,
+        excludedTypes,
       }
       fileEntries.push(rows)
     } catch (err) {
@@ -403,7 +415,9 @@ const processJsonFiles = async function (files, { rescan = false } = {}) {
 
   console.log(`Файлов: ${files.length} | из кэша: ${stats.cached} | прочитано: ${stats.scanned}`)
   console.log(`С FText: ${stats.withFText} | без переводимого текста: ${stats.withoutFText} | отфильтровано: ${stats.filtered}`)
-  console.log(`Из них 3D-текст дверей и табличек (TextRenderComponent): ${stats.textRenderIgnored}`)
+  for (const objectType of EXCLUDED_OBJECT_TYPES) {
+    console.log(`Исключено ${objectType}: ${stats.excludedTypes[objectType] || 0}`)
+  }
   console.log(`Записей: ${entries.length} | новые: ${changes.added} | изменённые: ${changes.changed} | без изменений: ${changes.unchanged} | удалённые: ${changes.removed}`)
   return { entries: entries.length, changes }
 }
