@@ -52,6 +52,12 @@ npm install
 UE4TextExtractor.exe build/Game.locres.txt build/Game.locres
 ```
 
+Полную последовательность — создание текстового и бинарного locres, затем zip — можно выполнить одной командой:
+
+```powershell
+npm run release
+```
+
 Если игра mod не видит — добавь `-old`.
 
 ### Установка одним архивом
